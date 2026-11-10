@@ -1,9 +1,10 @@
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 import httpx
 
 from payments import create_order, capture_order
-from risk import score_transaction, record, seed_demo_history
+from risk import record, seed_demo_history
+from decision import decide
 
 app = FastAPI(title="PayPal Trust Layer")
 seed_demo_history()
@@ -18,6 +19,24 @@ class OrderRequest(BaseModel):
     payee_id: str = "shop_a"
     hour: int | None = None
 
+    @field_validator("amount")
+    @classmethod
+    def amount_must_be_positive_number(cls, v):
+        try:
+            value = float(v)
+        except ValueError:
+            raise ValueError("amount must be a number like '25.00'")
+        if value <= 0:
+            raise ValueError("amount must be greater than 0")
+        return v
+
+    @field_validator("hour")
+    @classmethod
+    def hour_in_range(cls, v):
+        if v is not None and not 0 <= v <= 23:
+            raise ValueError("hour must be between 0 and 23")
+        return v
+
 
 @app.get("/")
 def root():
@@ -31,10 +50,13 @@ def health():
 
 @app.post("/orders")
 def new_order(req: OrderRequest):
-    risk = score_transaction(req.payer_id, req.payee_id, float(req.amount), req.hour)
+    risk = decide(req.payer_id, req.payee_id, float(req.amount), req.hour)
 
     if risk["decision"] == "HOLD":
-        raise HTTPException(status_code=403, detail={"message": "Held by Trust Layer", **risk})
+        raise HTTPException(
+            status_code=403,
+            detail={"message": "Held by Trust Layer. No PayPal order was created.", **risk},
+        )
 
     try:
         order = create_order(req.amount, req.currency)
@@ -42,9 +64,12 @@ def new_order(req: OrderRequest):
         raise HTTPException(status_code=502, detail=e.response.text)
 
     ORDERS[order["id"]] = {
-        "payer": req.payer_id, "payee": req.payee_id,
-        "amount": float(req.amount), "risk": risk,
+        "payer": req.payer_id,
+        "payee": req.payee_id,
+        "amount": float(req.amount),
+        "risk": risk,
     }
+
     approve_url = next(
         (l["href"] for l in order["links"] if l["rel"] in ("approve", "payer-action")),
         None,
@@ -59,7 +84,10 @@ def capture(order_id: str, confirmed: bool = False):
         raise HTTPException(status_code=404, detail="Order never passed the Trust Layer")
 
     if info["risk"]["decision"] == "STEP_UP" and not confirmed:
-        raise HTTPException(status_code=428, detail={"message": "Confirmation required", **info["risk"]})
+        raise HTTPException(
+            status_code=428,
+            detail={"message": "Confirmation required before capture", **info["risk"]},
+        )
 
     try:
         result = capture_order(order_id)
