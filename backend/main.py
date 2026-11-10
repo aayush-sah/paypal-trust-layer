@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
 import httpx
 
@@ -11,8 +12,16 @@ from risk import record, seed_demo_history
 from decision import decide
 from explain import explain
 from webhooks import verify_signature, check_event
+from stream import router as stream_router
 
 app = FastAPI(title="PayPal Trust Layer")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.include_router(stream_router)
 seed_demo_history()
 
 ORDERS = {}
