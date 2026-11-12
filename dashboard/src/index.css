@@ -1,1 +1,5 @@
 @import "tailwindcss";
+
+.row-broken {
+  background-color: rgba(239, 68, 68, 0.28) !important;
+}
