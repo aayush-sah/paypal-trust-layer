@@ -50,6 +50,7 @@ Built for the *Build What's Next with PayPal and AI* hackathon
 - [Run it yourself](#run-it-yourself)
 - [Project layout](#project-layout)
 - [Team](#team)
+- [License](#license)
 
 <br/>
 
@@ -280,18 +281,39 @@ dashboard/src/
 
 ## Team
 
-<div align="center">
+**Team Cloak & Dagger** built Trust Layer for the *Build What's Next with PayPal and AI* hackathon.
 
-### Team Cloak & Dagger
-
-| Aayush | Riya |
-|:-:|:-:|
-| [@aayush-sah](https://github.com/aayush-sah) | Teammate |
+| Member | GitHub |
+|:--|:--|
+| **Aayush** | [@aayush-sah](https://github.com/aayush-sah) |
+| **Riya** | [@riyaagarwal001](https://github.com/riyaagarwal001) |
 
 <br/>
 
-[**Open the live demo**](https://paypal-trust-layer-1.onrender.com) &nbsp;|&nbsp; [**Built with**](https://paypal-trust-layer-1.onrender.com/#built)
+## Acknowledgements
 
-Released under the [MIT License](LICENSE).
+- **PayPal Developer** for the sandbox, the Orders v2 API and webhooks.
+- **Anthropic** for Claude, which writes the explanations and incident notes.
+- **AG Grid** for the tables, and **Render** for hosting.
+
+<br/>
+
+## License
+
+Released under the [MIT License](LICENSE). You are free to use, change and share this code.
+
+<br/>
+
+<div align="center">
+
+### See it running
+
+[![Open the live demo](https://img.shields.io/badge/Open_the_live_demo-paypal--trust--layer--1.onrender.com-2f5fff?style=for-the-badge)](https://paypal-trust-layer-1.onrender.com)
+
+[What it is built with](https://paypal-trust-layer-1.onrender.com/#built) &nbsp;|&nbsp; [Watch the demo video](REPLACE_WITH_YOUTUBE_URL)
+
+<br/>
+
+Made by **Aayush** and **Riya**, Team Cloak & Dagger
 
 </div>
