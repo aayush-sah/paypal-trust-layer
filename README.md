@@ -10,7 +10,7 @@ Risky payments are held before a PayPal order exists, and every step is written 
 <br/>
 
 [![Live demo](https://img.shields.io/badge/Live_demo-Open_Trust_Layer-2f5fff?style=for-the-badge)](https://paypal-trust-layer-1.onrender.com)
-[![Demo video](https://img.shields.io/badge/Demo_video-YouTube-ff3d6b?style=for-the-badge)](REPLACE_WITH_YOUTUBE_URL)
+[![Demo video](https://img.shields.io/badge/Demo_video-YouTube-ff3d6b?style=for-the-badge)](https://youtu.be/4rs1uHRWJSM)
 
 ![PayPal](https://img.shields.io/badge/PayPal-Orders_v2_and_Webhooks-003087?style=flat-square&logo=paypal&logoColor=white)
 ![Claude](https://img.shields.io/badge/AI-Claude_and_Isolation_Forest-6d93ff?style=flat-square)
