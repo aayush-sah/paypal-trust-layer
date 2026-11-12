@@ -24,7 +24,7 @@ Risky payments are held before a PayPal order exists, and every step is written 
 <br/>
 
 **Team Cloak & Dagger** &nbsp;|&nbsp; Aayush and Riya<br/>
-Built for the *Build What's Next with PayPal and AI* hackathon
+Built for the *Build What's Next with PayPal AI* hackathon
 
 </div>
 
