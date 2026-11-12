@@ -33,7 +33,7 @@ export interface Tick {
 
 export type Status = 'connecting' | 'open' | 'closed'
 
-const KEEP = 60
+const KEEP = 300
 
 export function useStream() {
   const [status, setStatus] = useState<Status>('connecting')

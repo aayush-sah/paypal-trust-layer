@@ -1,11 +1,14 @@
 import asyncio
 import os
 import time
+from collections import deque
 
 import numpy as np
-from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 
 from engine import Engine
+from incident import summarise
+from ratelimit import limit
 
 router = APIRouter()
 
@@ -28,6 +31,8 @@ class Simulation:
         self.clients = set()
         self.seq = 0
         self.totals = {"APPROVE": 0, "STEP_UP": 0, "HOLD": 0}
+        # The newest held payments, kept so the incident summary can describe them.
+        self.recent_holds = deque(maxlen=300)
 
     def init_population(self):
         rng = self.rng
@@ -112,6 +117,8 @@ class Simulation:
             if r["decision"] != "APPROVE":
                 item["reasons"] = r["reasons"]
                 flagged.append(item)
+                if r["decision"] == "HOLD":
+                    self.recent_holds.append({**item, "ts": time.time()})
             elif i % stride == 0 and len(sample) < 40:
                 sample.append(item)
 
@@ -176,7 +183,7 @@ sim = Simulation()
 
 
 @router.post("/sim/start")
-async def sim_start(  rate: int = Query(1000, ge=1, le=MAX_SIM_RATE),
+async def sim_start(rate: int = Query(1000, ge=1, le=MAX_SIM_RATE),
                     attack: float = Query(0.01, ge=0.0, le=0.5)):
     sim.rate = rate
     sim.attack_rate = attack
@@ -207,6 +214,15 @@ async def sim_attack(kind: str = Query("drain"), count: int = Query(1, ge=1, le=
     for _ in range(count):
         sim.pending += sim.make_attack(kind)
     return {"queued": count, "kind": kind}
+
+
+@router.post("/incidents/summary", dependencies=[Depends(limit(6, 60))])
+async def incident_summary():
+    holds = list(sim.recent_holds)
+    if not holds:
+        raise HTTPException(status_code=409, detail="No held payments yet. Start the traffic and inject an attack first.")
+    # The Claude call can take a few seconds, so it runs in a worker thread.
+    return await asyncio.to_thread(summarise, holds)
 
 
 @router.get("/sim/status")

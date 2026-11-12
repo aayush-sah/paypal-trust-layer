@@ -10,7 +10,7 @@ import Scene3D from './Scene3D'
 import type { AuditStatus } from './Scene3D'
 import RealPayment from './RealPayment'
 import AuditLog from './AuditLog'
-import type { Item } from './useStream'
+import QuarantineGrid from './QuarantineGrid'
 
 const RATES = [500, 1000, 2000, 5000]
 const SHARES = [0.005, 0.01, 0.02]
@@ -49,10 +49,6 @@ const STACK = [
 
 const STATUS_TEXT = { open: 'Connected', connecting: 'Connecting', closed: 'Server offline' }
 
-function cleanReason(reason: string) {
-  return reason.replace(/^\[[a-z]+\]\s*/, '')
-}
-
 function Section({ id, title, lead, children }: { id: string; title: string; lead: string; children: ReactNode }) {
   return (
     <section className="section" id={id}>
@@ -76,35 +72,24 @@ function Kpi({ label, value, tone = '' }: { label: string; value: string; tone?:
   )
 }
 
-function HeldRow({ item, open, onToggle }: { item: Item; open: boolean; onToggle: () => void }) {
-  const reasons = item.reasons ?? []
-  return (
-    <li className={`held-row held-${item.decision}`}>
-      <button type="button" className="held-head" aria-expanded={open} onClick={onToggle}>
-        <span className="held-amount">${item.amount.toLocaleString()}</span>
-        <span className="held-who">{item.payer} to {item.payee}</span>
-        <span className="held-why">{reasons[0] ? cleanReason(reasons[0]) : 'Flagged'}</span>
-      </button>
-      {open && (
-        <div className="held-more">
-          <ul>
-            {reasons.map((r) => <li key={r}>{cleanReason(r)}</li>)}
-          </ul>
-          <p>
-            Rules score {item.rules}, model score {item.ml}, at {item.hour}:00.
-            {item.label ? ` Simulated attack type: ${item.label}.` : ''}
-          </p>
-        </div>
-      )}
-    </li>
-  )
+interface Summary {
+  text: string
+  source: string
+  stats: {
+    held: number
+    payers: number
+    total_amount: number
+    night_share: number
+    top_reasons: { reason: string; count: number }[]
+  }
 }
 
 export default function App() {
   const { status, tick, held, review, live } = useStream()
   const events = useEvents()
-  const [list, setList] = useState<'held' | 'review'>('held')
-  const [openRow, setOpenRow] = useState<number | null>(null)
+  const [summary, setSummary] = useState<Summary | null>(null)
+  const [summaryBusy, setSummaryBusy] = useState(false)
+  const [summaryError, setSummaryError] = useState('')
   const [audit, setAudit] = useState<AuditStatus | null>(null)
   const [rate, setRate] = useState(1000)
   const [share, setShare] = useState(0.01)
@@ -124,8 +109,23 @@ export default function App() {
     }
   }
 
+  // Ask the server for an analyst note about the recent holds.
+  const summarise = async () => {
+    setSummaryBusy(true)
+    setSummaryError('')
+    try {
+      const res = await fetch(`${API}/incidents/summary`, { method: 'POST' })
+      const body = await res.json().catch(() => null)
+      if (res.ok) setSummary(body)
+      else setSummaryError(typeof body?.detail === 'string' ? body.detail : `Request failed (${res.status})`)
+    } catch {
+      setSummaryError('Cannot reach the server.')
+    } finally {
+      setSummaryBusy(false)
+    }
+  }
+
   const goTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
-  const rows = list === 'held' ? held : review
   const totals = tick?.totals ?? { APPROVE: 0, STEP_UP: 0, HOLD: 0 }
   const captures = events.filter((e) => e.event_type === 'PAYMENT.CAPTURE.COMPLETED' && e.status === 'OK').length
   const verified = events.filter((e) => e.status === 'OK').length
@@ -167,7 +167,7 @@ export default function App() {
             </dl>
 
             <div className="live-scene">
-              <Scene3D tick={tick} live={live} events={events} audit={audit} onOpenHeld={() => { setList('held'); goTo('quarantine') }} />
+              <Scene3D tick={tick} live={live} events={events} audit={audit} onOpenHeld={() => goTo('quarantine')} />
               {!live && <p className="live-hint">No traffic is running. Press Start traffic below.</p>}
             </div>
 
@@ -210,39 +210,55 @@ export default function App() {
         </Section>
 
         <Section id="quarantine" title="Quarantine"
-                 lead="Every flagged payment, with the exact reasons. Select a payment to see all the signals and both scores.">
-          <div className="split">
-            <div className="split-side">
+                 lead="Every flagged payment with its reasons, in a table you can sort, filter, search and export. An AI analyst note sums up what the holds have in common.">
+          <div className="q-top">
+            <div>
               <dl className="kpis kpis-stack">
                 <Kpi label="Held, no money moved" value={totals.HOLD.toLocaleString()} tone="kpi-held" />
                 <Kpi label="Sent back for confirmation" value={totals.STEP_UP.toLocaleString()} tone="kpi-review" />
               </dl>
               <p className="note">
                 A held payment is stopped at the risk gate. No PayPal order is created, so there is nothing to
-                refund. A payment that needs confirmation is unusual but not blocked: it is captured only after
-                the payer confirms it.
+                refund. A payment that needs confirmation is captured only after the payer confirms it.
               </p>
             </div>
+
             <div className="card">
-              <div className="seg" role="tablist">
-                <button type="button" role="tab" aria-selected={list === 'held'} onClick={() => setList('held')}>Held</button>
-                <button type="button" role="tab" aria-selected={list === 'review'} onClick={() => setList('review')}>
-                  Needs confirmation
+              <div className="card-head">
+                <h2>AI incident note</h2>
+                <button type="button" className="btn btn-primary" disabled={summaryBusy} onClick={summarise}>
+                  {summaryBusy ? 'Reading the holds' : summary ? 'Refresh the note' : 'Summarise the recent holds'}
                 </button>
               </div>
-              {rows.length === 0 ? (
-                <p className="empty">
-                  {live ? 'Nothing here yet. Inject an attack in the Live path section.' : 'Start the traffic in the Live path section, then inject an attack.'}
+              {summaryError && <p className="controls-message" role="alert">{summaryError}</p>}
+              {!summary && !summaryError && (
+                <p className="note">
+                  The server counts the recent held payments: how many, from how many payers, at what hours and
+                  for which reasons. Claude turns those counts into a short note for a reviewer. It sees only
+                  the counts and cannot change any decision.
                 </p>
-              ) : (
-                <ul className="held-list">
-                  {rows.map((item) => (
-                    <HeldRow key={item.id} item={item} open={openRow === item.id}
-                             onToggle={() => setOpenRow(openRow === item.id ? null : item.id)} />
-                  ))}
-                </ul>
+              )}
+              {summary && (
+                <>
+                  <p className="ai-note">{summary.text}</p>
+                  <p className="note">
+                    {summary.source === 'claude' ? 'Written by Claude' : 'Built-in summary (Claude was not available)'} from
+                    these counts: {summary.stats.held} held payments, {summary.stats.payers} payers,
+                    ${summary.stats.total_amount.toLocaleString()} in total, {Math.round(summary.stats.night_share * 100)}% between
+                    midnight and 6 AM.
+                  </p>
+                  <ul className="reason-counts">
+                    {summary.stats.top_reasons.map((r) => (
+                      <li key={r.reason}><b>{r.count}</b>{r.reason}</li>
+                    ))}
+                  </ul>
+                </>
               )}
             </div>
+          </div>
+
+          <div className="card">
+            <QuarantineGrid held={held} review={review} />
           </div>
         </Section>
 
