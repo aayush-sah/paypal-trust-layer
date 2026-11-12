@@ -1,4 +1,5 @@
 import asyncio
+import os
 import time
 
 import numpy as np
@@ -11,6 +12,7 @@ router = APIRouter()
 N_PAYERS = 50_000
 TICK = 0.1
 KINDS = ["drain", "night_takeover", "moderate", "scam", "card_testing"]
+MAX_SIM_RATE = int(os.getenv("MAX_SIM_RATE", "10000"))
 
 
 class Simulation:
@@ -174,7 +176,7 @@ sim = Simulation()
 
 
 @router.post("/sim/start")
-async def sim_start(rate: int = Query(1000, ge=1, le=10000),
+async def sim_start(  rate: int = Query(1000, ge=1, le=MAX_SIM_RATE),
                     attack: float = Query(0.01, ge=0.0, le=0.5)):
     sim.rate = rate
     sim.attack_rate = attack
@@ -192,6 +194,7 @@ async def sim_stop():
     if sim.task:
         await sim.task
         sim.task = None
+    sim.pending = []
     return {"running": False}
 
 
@@ -199,7 +202,7 @@ async def sim_stop():
 async def sim_attack(kind: str = Query("drain"), count: int = Query(1, ge=1, le=50)):
     if kind not in KINDS:
         raise HTTPException(status_code=422, detail=f"kind must be one of {KINDS}")
-    if sim.engine is None:
+    if not sim.running:
         raise HTTPException(status_code=409, detail="Start the simulation first")
     for _ in range(count):
         sim.pending += sim.make_attack(kind)

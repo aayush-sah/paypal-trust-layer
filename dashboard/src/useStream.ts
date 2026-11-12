@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
-export const API = 'http://127.0.0.1:8000'
-const WS_URL = 'ws://127.0.0.1:8000/ws'
+export const API = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://127.0.0.1:8000'
+const WS_URL = `${API.replace(/^http/, 'ws')}/ws`
 
 export type Decision = 'APPROVE' | 'STEP_UP' | 'HOLD'
 
