@@ -6,7 +6,13 @@ import { API } from './useStream'
 
 ModuleRegistry.registerModules([AllCommunityModule])
 
-const theme = themeQuartz.withPart(colorSchemeDark)
+const theme = themeQuartz.withPart(colorSchemeDark).withParams({
+  backgroundColor: '#070b18',
+  foregroundColor: '#eef2ff',
+  headerBackgroundColor: '#0c1430',
+  borderColor: 'rgba(80, 120, 255, 0.2)',
+  fontFamily: 'inherit',
+})
 
 interface AuditRow {
   id: number
@@ -66,7 +72,12 @@ const columns: ColDef<AuditRow>[] = [
   },
 ]
 
-export default function AuditLog() {
+interface Props {
+  // Lets the 3D scene show the chain status on the Audit log ring.
+  onStatus?: (status: Verify) => void
+}
+
+export default function AuditLog({ onStatus }: Props) {
   const [rows, setRows] = useState<AuditRow[]>([])
   const [verify, setVerify] = useState<Verify | null>(null)
   const [message, setMessage] = useState('')
@@ -78,11 +89,15 @@ export default function AuditLog() {
         fetch(`${API}/audit/verify`),
       ])
       if (rowsRes.ok) setRows(await rowsRes.json())
-      if (verifyRes.ok) setVerify(await verifyRes.json())
+      if (verifyRes.ok) {
+        const status: Verify = await verifyRes.json()
+        setVerify(status)
+        onStatus?.(status)
+      }
     } catch {
       // server offline: keep what we have
     }
-  }, [])
+  }, [onStatus])
 
   useEffect(() => {
     load()
@@ -105,20 +120,19 @@ export default function AuditLog() {
     }
   }
 
-  const btn = 'rounded border border-cyan-700 px-3 py-1.5 text-sm text-cyan-200 hover:bg-cyan-900/40'
+  const btn = 'btn'
 
   return (
-    <div className="rounded-lg border border-white/10 bg-white/5 p-4">
-      <div className="mb-2 flex flex-wrap items-center gap-3">
-        <h2 className="text-sm uppercase tracking-widest text-slate-400">Audit log (tamper-evident)</h2>
+    <div>
+      <div className="panel-head panel-head-wrap">
         {verify && verify.ok && (
-          <span className="rounded border border-emerald-500 px-2 py-0.5 text-sm text-emerald-300">
-            CHAIN VERIFIED ✓ · {verify.count} entries
+          <span className="badge badge-ok">
+            Chain verified, {verify.count} entries
           </span>
         )}
         {verify && !verify.ok && (
-          <span className="rounded border border-red-500 px-2 py-0.5 text-sm text-red-300">
-            CHAIN BROKEN at entry #{verify.broken_at}
+          <span className="badge badge-bad">
+            Chain broken at entry {verify.broken_at}
           </span>
         )}
         <span className="flex-1" />
@@ -128,14 +142,14 @@ export default function AuditLog() {
 
       {verify && !verify.ok && <p className="mb-2 text-sm text-red-300">Reason: {verify.reason}.</p>}
       {message && <p className="mb-2 text-sm text-red-400">{message}</p>}
-      <p className="mb-3 text-xs text-slate-500">
+      <p className="panel-note mb-3">
         Every real decision, order, capture and webhook is written here, and each entry contains the hash of the one
         before it. Changing or removing any old entry breaks the chain. Simulated traffic is not logged per payment,
         and "Reset demo data" does not clear this log. Latest hash:{' '}
         <span className="font-mono">{verify ? `${verify.head.slice(0, 16)}…` : '-'}</span>
       </p>
 
-      <div className="h-[320px]">
+      <div className="h-[380px]">
         <AgGridReact<AuditRow>
           theme={theme}
           rowData={rows}

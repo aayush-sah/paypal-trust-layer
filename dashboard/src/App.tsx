@@ -1,51 +1,113 @@
+// The whole page, top to bottom:
+// navigation, hero, how it works, live path, quarantine, real payment, audit log, built with, footer.
+
 import { useState } from 'react'
+import type { ReactNode } from 'react'
 import { API, useStream } from './useStream'
 import { useEvents } from './useEvents'
-import PathView from './PathView'
-import StreamCanvas from './StreamCanvas'
+import Hero from './Hero'
+import Scene3D from './Scene3D'
+import type { AuditStatus } from './Scene3D'
 import RealPayment from './RealPayment'
 import AuditLog from './AuditLog'
-import type { Decision, Item } from './useStream'
+import type { Item } from './useStream'
 
 const RATES = [500, 1000, 2000, 5000]
-const ATTACKS = [0.005, 0.01, 0.02]
-const KINDS = ['drain', 'night_takeover', 'moderate', 'scam', 'card_testing']
+const SHARES = [0.005, 0.01, 0.02]
+const ATTACKS = [
+  { kind: 'drain', name: 'Account drain' },
+  { kind: 'night_takeover', name: 'Night takeover' },
+  { kind: 'moderate', name: 'Moderate anomaly' },
+  { kind: 'scam', name: 'Scam payment (mostly missed)' },
+  { kind: 'card_testing', name: 'Card testing burst' },
+]
 
-const TEXT: Record<Decision, string> = {
-  APPROVE: 'text-emerald-400',
-  STEP_UP: 'text-amber-400',
-  HOLD: 'text-red-400',
+const NAV = [
+  ['#how', 'How it works'],
+  ['#live', 'Live path'],
+  ['#quarantine', 'Quarantine'],
+  ['#pay', 'Real payment'],
+  ['#audit', 'Audit log'],
+  ['#built', 'Built with'],
+]
+
+const STEPS = [
+  { title: 'Score', text: 'Fixed rules and a trained Isolation Forest model score each payment in milliseconds.' },
+  { title: 'Decide', text: 'The payment is approved, sent back for the payer to confirm, or held.' },
+  { title: 'Pay', text: 'Only approved payments reach PayPal. A held payment never creates an order.' },
+  { title: 'Prove', text: 'PayPal webhooks are signature-checked, and every step goes into a hash-chained audit log.' },
+]
+
+const STACK = [
+  ['PayPal sandbox', 'Orders v2 API for real orders and captures, and signed webhooks for confirmation.'],
+  ['Risk engine', 'Python rules plus a scikit-learn Isolation Forest trained on synthetic payment history.'],
+  ['Explanations', 'Claude turns the risk facts into plain language. A built-in template is the fallback.'],
+  ['Server', 'FastAPI, with a WebSocket that streams decisions to this page.'],
+  ['Audit log', 'SQLite, where each entry carries the SHA-256 hash of the one before it.'],
+  ['Dashboard', 'React and TypeScript, three.js for the 3D path, AG Grid for the audit table.'],
+]
+
+const STATUS_TEXT = { open: 'Connected', connecting: 'Connecting', closed: 'Server offline' }
+
+function cleanReason(reason: string) {
+  return reason.replace(/^\[[a-z]+\]\s*/, '')
 }
 
-function Card({ label, value, tone = 'text-cyan-300' }: { label: string; value: string; tone?: string }) {
+function Section({ id, title, lead, children }: { id: string; title: string; lead: string; children: ReactNode }) {
   return (
-    <div className="rounded-lg border border-cyan-900/60 bg-white/5 p-4">
-      <div className="text-xs uppercase tracking-widest text-slate-400">{label}</div>
-      <div className={`mt-1 text-3xl font-semibold ${tone}`}>{value}</div>
+    <section className="section" id={id}>
+      <div className="wrap">
+        <header className="section-head">
+          <h2>{title}</h2>
+          <p>{lead}</p>
+        </header>
+        {children}
+      </div>
+    </section>
+  )
+}
+
+function Kpi({ label, value, tone = '' }: { label: string; value: string; tone?: string }) {
+  return (
+    <div className={`kpi ${tone}`}>
+      <dt>{label}</dt>
+      <dd>{value}</dd>
     </div>
   )
 }
 
-function FeedRow({ item }: { item: Item }) {
+function HeldRow({ item, open, onToggle }: { item: Item; open: boolean; onToggle: () => void }) {
+  const reasons = item.reasons ?? []
   return (
-    <div className="flex items-start gap-3 border-b border-white/5 px-3 py-2 text-sm">
-      <span className={`w-16 shrink-0 font-semibold ${TEXT[item.decision]}`}>{item.decision}</span>
-      <span className="w-24 shrink-0 text-slate-200">${item.amount.toLocaleString()}</span>
-      <span className="w-20 shrink-0 text-slate-400">{item.payer}</span>
-      <span className="flex-1 text-slate-300">{item.reasons?.[0]}</span>
-      <span className="shrink-0 text-xs text-slate-500">
-        rules {item.rules} · ml {item.ml}
-        {item.label ? ` · simulated ${item.label}` : ''}
-      </span>
-    </div>
+    <li className={`held-row held-${item.decision}`}>
+      <button type="button" className="held-head" aria-expanded={open} onClick={onToggle}>
+        <span className="held-amount">${item.amount.toLocaleString()}</span>
+        <span className="held-who">{item.payer} to {item.payee}</span>
+        <span className="held-why">{reasons[0] ? cleanReason(reasons[0]) : 'Flagged'}</span>
+      </button>
+      {open && (
+        <div className="held-more">
+          <ul>
+            {reasons.map((r) => <li key={r}>{cleanReason(r)}</li>)}
+          </ul>
+          <p>
+            Rules score {item.rules}, model score {item.ml}, at {item.hour}:00.
+            {item.label ? ` Simulated attack type: ${item.label}.` : ''}
+          </p>
+        </div>
+      )}
+    </li>
   )
 }
 
 export default function App() {
-  const { status, tick, feed, lastHold } = useStream()
+  const { status, tick, held, review, live } = useStream()
   const events = useEvents()
+  const [list, setList] = useState<'held' | 'review'>('held')
+  const [openRow, setOpenRow] = useState<number | null>(null)
+  const [audit, setAudit] = useState<AuditStatus | null>(null)
   const [rate, setRate] = useState(1000)
-  const [attack, setAttack] = useState(0.01)
+  const [share, setShare] = useState(0.01)
   const [message, setMessage] = useState('')
 
   const call = async (path: string) => {
@@ -62,88 +124,177 @@ export default function App() {
     }
   }
 
-  const dot = status === 'open' ? 'bg-emerald-400' : status === 'connecting' ? 'bg-amber-400' : 'bg-red-500'
-  const totals = tick?.totals
-  const btn = 'rounded border border-cyan-700 px-3 py-1.5 text-sm text-cyan-200 hover:bg-cyan-900/40'
+  const goTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
+  const rows = list === 'held' ? held : review
+  const totals = tick?.totals ?? { APPROVE: 0, STEP_UP: 0, HOLD: 0 }
+  const captures = events.filter((e) => e.event_type === 'PAYMENT.CAPTURE.COMPLETED' && e.status === 'OK').length
+  const verified = events.filter((e) => e.status === 'OK').length
+  const refused = events.filter((e) => e.status !== 'OK').length
 
   return (
-    <div className="min-h-screen bg-black p-6 font-mono text-slate-100">
-      <header className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-cyan-300">PayPal Trust Layer</h1>
-          <p className="text-sm text-slate-400">Live risk decisions on the payment path</p>
-        </div>
-        <div className="flex items-center gap-4 text-sm">
-          <span className="rounded border border-amber-500/60 px-2 py-0.5 text-amber-300">SIMULATED TRAFFIC</span>
-          <span className="flex items-center gap-2 text-slate-300">
-            <span className={`inline-block h-2.5 w-2.5 rounded-full ${dot}`} />
-            {status}
-          </span>
+    <>
+      <header className="nav">
+        <div className="wrap nav-row">
+          <a className="logo" href="#top"><span aria-hidden="true" />Trust Layer</a>
+          <nav aria-label="Sections">
+            {NAV.map(([href, name]) => <a key={href} href={href}>{name}</a>)}
+          </nav>
+          <span className={`link link-${status}`}>{STATUS_TEXT[status]}</span>
         </div>
       </header>
 
-      <section className="mb-6 flex flex-wrap items-center gap-3 rounded-lg border border-white/10 bg-white/5 p-4">
-        <label className="text-sm text-slate-400">
-          Rate{' '}
-          <select className="ml-1 rounded bg-black px-2 py-1 text-slate-100" value={rate}
-                  onChange={(e) => setRate(Number(e.target.value))}>
-            {RATES.map((r) => <option key={r} value={r}>{r} tx/s</option>)}
-          </select>
-        </label>
-        <label className="text-sm text-slate-400">
-          Attack share{' '}
-          <select className="ml-1 rounded bg-black px-2 py-1 text-slate-100" value={attack}
-                  onChange={(e) => setAttack(Number(e.target.value))}>
-            {ATTACKS.map((a) => <option key={a} value={a}>{a * 100}%</option>)}
-          </select>
-        </label>
-        <button className={btn} onClick={() => call(`/sim/start?rate=${rate}&attack=${attack}`)}>Start</button>
-        <button className={btn} onClick={() => call('/sim/stop')}>Stop</button>
-        <span className="mx-2 text-slate-600">|</span>
-        <span className="text-sm text-slate-400">Inject:</span>
-        {KINDS.map((k) => (
-          <button key={k} className={btn} onClick={() => call(`/sim/attack?kind=${k}&count=${k === 'card_testing' ? 1 : 3}`)}>
-            {k}
-          </button>
-        ))}
-        {message && <span className="w-full text-sm text-red-400">{message}</span>}
-      </section>
+      <main>
+        <Hero status={status} />
 
-      <section className="mb-6">
-        <PathView tick={tick} lastHold={lastHold} events={events} />
-      </section>
+        <Section id="how" title="How a payment travels"
+                 lead="Four steps, in this order, for every payment. The checks happen before PayPal is ever called.">
+          <ol className="how">
+            {STEPS.map((s) => (
+              <li key={s.title} className="card"><h3>{s.title}</h3><p>{s.text}</p></li>
+            ))}
+          </ol>
+        </Section>
 
-      <section className="mb-6">
-        <StreamCanvas tick={tick} />
-      </section>
+        <Section id="live" title="Live payment path"
+                 lead="Simulated traffic flows through the same scoring engine that guards real payments. Start it, then inject an attack and watch the risk gate react.">
+          <div className="card live">
+            <dl className="kpis">
+              <Kpi label="Payments a second" value={live && tick ? tick.tx_per_sec.toLocaleString() : '0'} />
+              <Kpi label="Scoring time per batch" value={live && tick ? `${tick.batch_ms} ms` : 'Stopped'} />
+              <Kpi label="Approved" value={totals.APPROVE.toLocaleString()} tone="kpi-approve" />
+              <Kpi label="Needs confirmation" value={totals.STEP_UP.toLocaleString()} tone="kpi-review" />
+              <Kpi label="Held" value={totals.HOLD.toLocaleString()} tone="kpi-held" />
+            </dl>
 
-      <section className="mb-6">
-        <RealPayment />
-      </section>
+            <div className="live-scene">
+              <Scene3D tick={tick} live={live} events={events} audit={audit} onOpenHeld={() => { setList('held'); goTo('quarantine') }} />
+              {!live && <p className="live-hint">No traffic is running. Press Start traffic below.</p>}
+            </div>
 
-      <section className="mb-6">
-        <AuditLog />
-      </section>
+            <div className="controls">
+              <label className="field">
+                <span>Rate</span>
+                <select value={rate} onChange={(e) => setRate(Number(e.target.value))}>
+                  {RATES.map((r) => <option key={r} value={r}>{r.toLocaleString()} a second</option>)}
+                </select>
+              </label>
+              <label className="field">
+                <span>Attack share</span>
+                <select value={share} onChange={(e) => setShare(Number(e.target.value))}>
+                  {SHARES.map((a) => <option key={a} value={a}>{a * 100}%</option>)}
+                </select>
+              </label>
+              <button type="button" className="btn btn-primary" onClick={() => call(`/sim/start?rate=${rate}&attack=${share}`)}>
+                Start traffic
+              </button>
+              <button type="button" className="btn" onClick={() => call('/sim/stop')}>Stop</button>
+              <label className="field">
+                <span>Inject an attack</span>
+                <select value="" onChange={(e) => {
+                  const kind = e.target.value
+                  if (kind) call(`/sim/attack?kind=${kind}&count=${kind === 'card_testing' ? 1 : 3}`)
+                }}>
+                  <option value="">Choose one</option>
+                  {ATTACKS.map((a) => <option key={a.kind} value={a.kind}>{a.name}</option>)}
+                </select>
+              </label>
+              <ul className="legend" aria-label="What the colours mean">
+                <li className="legend-approve">Approved</li>
+                <li className="legend-review">Needs confirmation</li>
+                <li className="legend-held">Held</li>
+                <li className="legend-real">Real sandbox payment</li>
+              </ul>
+              {message && <p className="controls-message" role="alert">{message}</p>}
+            </div>
+          </div>
+        </Section>
 
-      <section className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-5">
-        <Card label="Payments / sec" value={tick ? tick.tx_per_sec.toLocaleString() : '-'} />
-        <Card label="Batch time" value={tick ? `${tick.batch_ms} ms` : '-'} />
-        <Card label="Approved" value={totals ? totals.APPROVE.toLocaleString() : '-'} tone="text-emerald-400" />
-        <Card label="Step-up" value={totals ? totals.STEP_UP.toLocaleString() : '-'} tone="text-amber-400" />
-        <Card label="Held" value={totals ? totals.HOLD.toLocaleString() : '-'} tone="text-red-400" />
-      </section>
+        <Section id="quarantine" title="Quarantine"
+                 lead="Every flagged payment, with the exact reasons. Select a payment to see all the signals and both scores.">
+          <div className="split">
+            <div className="split-side">
+              <dl className="kpis kpis-stack">
+                <Kpi label="Held, no money moved" value={totals.HOLD.toLocaleString()} tone="kpi-held" />
+                <Kpi label="Sent back for confirmation" value={totals.STEP_UP.toLocaleString()} tone="kpi-review" />
+              </dl>
+              <p className="note">
+                A held payment is stopped at the risk gate. No PayPal order is created, so there is nothing to
+                refund. A payment that needs confirmation is unusual but not blocked: it is captured only after
+                the payer confirms it.
+              </p>
+            </div>
+            <div className="card">
+              <div className="seg" role="tablist">
+                <button type="button" role="tab" aria-selected={list === 'held'} onClick={() => setList('held')}>Held</button>
+                <button type="button" role="tab" aria-selected={list === 'review'} onClick={() => setList('review')}>
+                  Needs confirmation
+                </button>
+              </div>
+              {rows.length === 0 ? (
+                <p className="empty">
+                  {live ? 'Nothing here yet. Inject an attack in the Live path section.' : 'Start the traffic in the Live path section, then inject an attack.'}
+                </p>
+              ) : (
+                <ul className="held-list">
+                  {rows.map((item) => (
+                    <HeldRow key={item.id} item={item} open={openRow === item.id}
+                             onToggle={() => setOpenRow(openRow === item.id ? null : item.id)} />
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </Section>
 
-      <section className="rounded-lg border border-white/10 bg-white/5">
-        <h2 className="border-b border-white/10 px-3 py-2 text-sm uppercase tracking-widest text-slate-400">
-          Flagged payments (newest first)
-        </h2>
-        <div className="max-h-[420px] overflow-y-auto">
-          {feed.length === 0 && (
-            <p className="p-4 text-sm text-slate-500">Nothing yet. Press Start, then inject an attack.</p>
-          )}
-          {feed.map((item) => <FeedRow key={item.id} item={item} />)}
+        <Section id="pay" title="Real PayPal sandbox payment"
+                 lead="This part is not simulated. The payment is scored first, and only then is a real order created through the PayPal sandbox API.">
+          <div className="split">
+            <div className="split-side">
+              <dl className="kpis kpis-stack">
+                <Kpi label="Payments captured" value={captures.toLocaleString()} />
+                <Kpi label="Webhooks verified" value={refused > 0 ? `${verified}, ${refused} refused` : verified.toLocaleString()}
+                     tone={refused > 0 ? 'kpi-held' : ''} />
+              </dl>
+              <p className="note">
+                Try the three presets. A normal payment is approved, an unusual payee needs confirmation, and a
+                large payment at 3 AM is held before PayPal is called.
+              </p>
+            </div>
+            <div className="card">
+              <RealPayment events={events} />
+            </div>
+          </div>
+        </Section>
+
+        <Section id="audit" title="Audit log"
+                 lead="Each entry contains the hash of the entry before it, so changing or deleting any old entry breaks the chain. Tamper with it to see the break detected.">
+          <div className="card">
+            <AuditLog onStatus={setAudit} />
+          </div>
+        </Section>
+
+        <Section id="built" title="Built with"
+                 lead="What each part of the project runs on.">
+          <dl className="stack">
+            {STACK.map(([name, text]) => (
+              <div key={name} className="card"><dt>{name}</dt><dd>{text}</dd></div>
+            ))}
+          </dl>
+          <p className="note note-wide">
+            What is simulated and what is real: the moving traffic and its counts are simulated, so the system can
+            be seen at scale. Payments made in the Real payment section, their webhooks and the audit log are real
+            PayPal sandbox activity. The risk model is trained on synthetic data.
+          </p>
+        </Section>
+      </main>
+
+      <footer className="footer">
+        <div className="wrap footer-row">
+          <p><b>Team Cloak &amp; Dagger</b>Aayush and Riya</p>
+          <p>Built for the Build What's Next with PayPal and AI hackathon.</p>
         </div>
-      </section>
-    </div>
+        <p className="footer-mark" aria-hidden="true">Trust Layer</p>
+      </footer>
+    </>
   )
 }

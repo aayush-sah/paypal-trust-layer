@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { API } from './useStream'
 import type { Decision } from './useStream'
+import type { EventEntry } from './useEvents'
 
 interface Risk {
   decision: Decision
@@ -40,7 +41,7 @@ function readError(body: unknown, status: number) {
   return `Request failed (${status})`
 }
 
-export default function RealPayment() {
+export default function RealPayment({ events }: { events: EventEntry[] }) {
   const [amount, setAmount] = useState('30')
   const [payee, setPayee] = useState('shop_a')
   const [hour, setHour] = useState('12')
@@ -50,6 +51,7 @@ export default function RealPayment() {
   const [explanation, setExplanation] = useState<Explanation | null>(null)
   const [confirmed, setConfirmed] = useState(false)
   const [captureMsg, setCaptureMsg] = useState('')
+  const [captured, setCaptured] = useState(false)
 
   const offline = 'Cannot reach the server on port 8000. Is uvicorn running?'
 
@@ -59,6 +61,7 @@ export default function RealPayment() {
     setExplanation(null)
     setConfirmed(false)
     setCaptureMsg('')
+    setCaptured(false)
   }
 
   const loadExplanation = async (id: string) => {
@@ -114,7 +117,8 @@ export default function RealPayment() {
       const res = await fetch(`${API}/orders/${result.orderId}/capture?confirmed=${confirmed}`, { method: 'POST' })
       const body = await res.json().catch(() => null)
       if (res.ok) {
-        setCaptureMsg(`Payment ${body.status}. Watch the PayPal and Webhook stages in the diagram above.`)
+        setCaptured(true)
+        setCaptureMsg(`Payment ${body.status}. PayPal now sends a signed webhook, which is checked below.`)
       } else if (res.status === 428) {
         setCaptureMsg('Blocked by the Trust Layer: confirmation required. Tick the box to confirm this payment.')
       } else {
@@ -136,16 +140,26 @@ export default function RealPayment() {
     }
   }
 
-  const btn = 'rounded border border-cyan-700 px-3 py-1.5 text-sm text-cyan-200 hover:bg-cyan-900/40 disabled:opacity-40'
-  const input = 'rounded bg-black px-2 py-1 text-slate-100 border border-white/10'
+  const btn = 'btn'
+  const held = result?.risk.decision === 'HOLD'
+  // PayPal's own confirmation for this order, once its signature has been verified.
+  const webhookOk = !!result?.orderId && events.some(
+    (e) => e.order_id === result.orderId && e.status === 'OK' && e.event_type === 'PAYMENT.CAPTURE.COMPLETED',
+  )
+  const steps = [
+    { label: 'Risk check', state: !result ? 'todo' : held ? 'bad' : 'done' },
+    { label: 'PayPal order created', state: result?.orderId ? 'done' : 'todo' },
+    { label: 'Payment captured', state: captured ? 'done' : 'todo' },
+    { label: 'Webhook verified', state: webhookOk ? 'done' : 'todo' },
+  ]
+  const input = 'input'
 
   return (
-    <div className="rounded-lg border border-white/10 bg-white/5 p-4">
-      <div className="mb-1 flex items-center justify-between">
-        <h2 className="text-sm uppercase tracking-widest text-slate-400">Real PayPal sandbox payment</h2>
-        <button className={btn} onClick={reset}>Reset demo data</button>
-      </div>
-      <p className="mb-3 text-xs text-slate-500">
+    <div>
+      <ol className="steps" aria-label="Progress of this payment">
+        {steps.map((s) => <li key={s.label} className={`step-${s.state}`}>{s.label}</li>)}
+      </ol>
+      <p className="panel-note mb-3">
         Payer is "alice" (a demo account whose usual payment is about $34). The payment is checked by the Trust Layer
         first. Only then is a real PayPal sandbox order created.
       </p>
@@ -180,13 +194,14 @@ export default function RealPayment() {
             <option value="">real clock</option>
           </select>
         </label>
-        <button className={btn} disabled={busy} onClick={submit}>Check and create order</button>
+        <button className="btn btn-primary" disabled={busy} onClick={submit}>Check and create order</button>
+        <button className={btn} onClick={reset}>Reset demo data</button>
       </div>
 
       {error && <p className="text-sm text-red-400">{error}</p>}
 
       {result && (
-        <div className="rounded border border-white/10 bg-black/40 p-3 text-sm">
+        <div className="result text-sm">
           <div className="mb-2 flex flex-wrap items-center gap-3">
             <span className={`rounded border px-2 py-0.5 font-semibold ${CHIP[result.risk.decision]}`}>
               {result.risk.decision}
@@ -216,7 +231,7 @@ export default function RealPayment() {
             <div className="space-y-2">
               <div>
                 <span className="text-slate-400">Step 1: </span>
-                <a className="text-cyan-300 underline" href={result.approveUrl ?? '#'} target="_blank" rel="noreferrer">
+                <a className="text-sky-300 underline" href={result.approveUrl ?? '#'} target="_blank" rel="noreferrer">
                   approve in PayPal sandbox (log in as the sandbox buyer, use a private window)
                 </a>
               </div>
